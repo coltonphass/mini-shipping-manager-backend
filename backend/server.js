@@ -59,10 +59,10 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'Server is working!' })
 })
 
-// Get all shipments
+// Get the 5 most recent shipments
 app.get('/api/shipments', async (req, res) => {
   try {
-    const shipments = await Shipment.find().sort({ createdAt: -1 })
+    const shipments = await Shipment.find().sort({ createdAt: -1 }).limit(5) // only most recent 5
     res.json(shipments)
   } catch (err) {
     console.error(err)
