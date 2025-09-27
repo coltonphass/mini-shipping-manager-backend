@@ -4,7 +4,7 @@ const mongoose = require('mongoose')
 const PDFDocument = require('pdfkit')
 const fs = require('fs')
 const path = require('path')
-const { exec } = require('child_process')
+const { PDFDocument: PDFLibDocument } = require('pdf-lib') // NEW: pdf-lib
 
 // MongoDB Shipment model
 const shipmentSchema = new mongoose.Schema({
@@ -94,28 +94,41 @@ function generatePDFInBackground(
   }
 }
 
-// Merge last 5 PDFs
-router.get('/merge-last-5', (req, res) => {
-  const scriptPath = path.join(__dirname, '..', 'python', 'merge_pdfs.py')
+// Merge last 5 PDFs using Node.js
+router.get('/merge-last-5', async (req, res) => {
+  try {
+    const labelsDir = path.join(__dirname, '../labels')
+    const files = fs
+      .readdirSync(labelsDir)
+      .filter((f) => f.toLowerCase().endsWith('.pdf'))
+      .sort() // optional: adjust sorting if needed
 
-  exec(`python3 "${scriptPath}"`, (error, stdout, stderr) => {
-    if (error) {
-      console.error(`Python error: ${error.message}`)
-      return res.status(500).json({ error: 'Failed to merge PDFs' })
+    const lastFive = files.slice(-5)
+    if (lastFive.length === 0) {
+      return res.status(400).json({ error: 'No PDF files to merge' })
     }
-    if (stderr) console.error(`Python stderr: ${stderr}`)
-    console.log(stdout)
 
-    const mergedFile = path.join(__dirname, '../labels/merged_labels.pdf')
-    if (fs.existsSync(mergedFile)) {
-      res.download(mergedFile, 'merged_labels.pdf', (err) => {
-        if (err) console.error(err)
-        else console.log('Merged PDF sent to client')
-      })
-    } else {
-      res.status(500).json({ error: 'Merged PDF not found' })
+    const mergedPdf = await PDFLibDocument.create()
+
+    for (const fileName of lastFive) {
+      const pdfBytes = fs.readFileSync(path.join(labelsDir, fileName))
+      const pdf = await PDFLibDocument.load(pdfBytes)
+      const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices())
+      copiedPages.forEach((page) => mergedPdf.addPage(page))
     }
-  })
+
+    const mergedBytes = await mergedPdf.save()
+    const mergedPath = path.join(labelsDir, 'merged_labels.pdf')
+    fs.writeFileSync(mergedPath, mergedBytes)
+
+    res.download(mergedPath, 'merged_labels.pdf', (err) => {
+      if (err) console.error(err)
+      else console.log('Merged PDF sent to client')
+    })
+  } catch (err) {
+    console.error('Failed to merge PDFs:', err)
+    res.status(500).json({ error: 'Failed to merge PDFs' })
+  }
 })
 
 module.exports = router
