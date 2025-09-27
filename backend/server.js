@@ -1,20 +1,22 @@
-// backend/server.js
 require('dotenv').config()
 const express = require('express')
 const mongoose = require('mongoose')
 const cors = require('cors')
 const bodyParser = require('body-parser')
-
 const app = express()
 
-// CORS configuration to allow frontend on port 5500
+// Allow all origins (good for testing) or whitelist your frontend domain
 const corsOptions = {
-  origin: 'http://127.0.0.1:5500', // or 'http://localhost:5500'
+  origin: [
+    'http://127.0.0.1:5500', // local dev
+    'http://localhost:5500', // local dev
+    'https://mini-shipment-manager.netlify.app/',
+  ],
   optionsSuccessStatus: 200,
 }
-
 app.use(cors(corsOptions))
-app.use(bodyParser.json()) // parse JSON bodies
+
+app.use(bodyParser.json())
 
 // MongoDB connection
 const MONGO_URI = process.env.MONGO_URI
@@ -28,25 +30,19 @@ mongoose
   .then(() => console.log('✅ MongoDB connected successfully!'))
   .catch((err) => console.error('❌ MongoDB connection error:', err))
 
-// Load and mount routes
-console.log('Loading shipments routes...')
-try {
-  const shipmentsRoutes = require('./routes/shipments')
-  app.use('/api/shipments', shipmentsRoutes)
-  console.log('✅ Shipments routes loaded successfully')
-} catch (err) {
-  console.error('❌ Error loading shipments routes:', err)
-}
+// Routes
+const shipmentsRoutes = require('./routes/shipments')
+app.use('/api/shipments', shipmentsRoutes)
 
-// static route to serve generated labels for download
+// Serve labels
 app.use('/labels', express.static(__dirname + '/labels'))
 
-// Add a test route to verify server is working
+// Test route
 app.get('/api/test', (req, res) => {
   res.json({ message: 'Server is working!' })
 })
 
-// Log all incoming requests for debugging
+// Log incoming requests
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`)
   next()
@@ -55,6 +51,6 @@ app.use((req, res, next) => {
 // Start server
 const PORT = process.env.PORT || 4000
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`)
-  console.log(`Test the server: http://localhost:${PORT}/api/test`)
+  console.log(`Server running on port ${PORT}`)
+  console.log(`Test API: http://localhost:${PORT}/api/test`)
 })
