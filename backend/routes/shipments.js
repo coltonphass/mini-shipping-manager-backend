@@ -1,17 +1,29 @@
 const express = require('express')
 const router = express.Router()
-const Shipment = require('../models/shipment')
+const mongoose = require('mongoose')
 const PDFDocument = require('pdfkit')
 const fs = require('fs')
 const path = require('path')
+const { exec } = require('child_process')
 
-// Helper: get backend base URL
+// MongoDB Shipment model
+const shipmentSchema = new mongoose.Schema({
+  recipient: { type: String, required: true },
+  address: { type: String, required: true },
+  weight: { type: Number, required: true },
+  service: { type: String, required: true },
+  labelPath: { type: String },
+  createdAt: { type: Date, default: Date.now },
+})
+const Shipment = mongoose.model('Shipment', shipmentSchema)
+
+// Backend URL
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000'
 
-// GET /api/shipments
+// GET last 5 shipments
 router.get('/', async (req, res) => {
   try {
-    const shipments = await Shipment.find().sort({ createdAt: -1 })
+    const shipments = await Shipment.find().sort({ createdAt: -1 }).limit(5)
     res.json(shipments)
   } catch (err) {
     console.error(err)
@@ -19,7 +31,7 @@ router.get('/', async (req, res) => {
   }
 })
 
-// POST /api/shipments
+// POST create shipment
 router.post('/', async (req, res) => {
   try {
     const { recipient, address, weight, service } = req.body
@@ -69,7 +81,6 @@ function generatePDFInBackground(
 
     writeStream.on('finish', async () => {
       try {
-        // Use backend URL dynamically
         shipment.labelPath = `${BACKEND_URL}/labels/${fileName}`
         await shipment.save()
       } catch (err) {
@@ -82,5 +93,29 @@ function generatePDFInBackground(
     console.error('PDF generation error:', err)
   }
 }
+
+// Merge last 5 PDFs
+router.get('/merge-last-5', (req, res) => {
+  const scriptPath = path.join(__dirname, '..', 'python', 'merge_pdfs.py')
+
+  exec(`python3 "${scriptPath}"`, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`Python error: ${error.message}`)
+      return res.status(500).json({ error: 'Failed to merge PDFs' })
+    }
+    if (stderr) console.error(`Python stderr: ${stderr}`)
+    console.log(stdout)
+
+    const mergedFile = path.join(__dirname, '../labels/merged_labels.pdf')
+    if (fs.existsSync(mergedFile)) {
+      res.download(mergedFile, 'merged_labels.pdf', (err) => {
+        if (err) console.error(err)
+        else console.log('Merged PDF sent to client')
+      })
+    } else {
+      res.status(500).json({ error: 'Merged PDF not found' })
+    }
+  })
+})
 
 module.exports = router
