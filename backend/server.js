@@ -3,22 +3,20 @@ const express = require('express')
 const mongoose = require('mongoose')
 const cors = require('cors')
 const bodyParser = require('body-parser')
+const path = require('path')
+const fs = require('fs')
+const PDFDocument = require('pdfkit')
+
 const app = express()
 
-// Allow all origins (good for testing) or whitelist your frontend domain
-const corsOptions = {
-  origin: [
-    'http://127.0.0.1:5500', // local dev
-    'http://localhost:5500', // local dev
-    'https://mini-shipment-manager.netlify.app/',
-  ],
-  optionsSuccessStatus: 200,
-}
-app.use(cors(corsOptions))
+// === CORS ===
+// Allow all origins for simplicity
+app.use(cors())
 
+// === Body Parser ===
 app.use(bodyParser.json())
 
-// MongoDB connection
+// === MongoDB Connection ===
 const MONGO_URI = process.env.MONGO_URI
 if (!MONGO_URI) {
   console.error('No Mongo URI found. Check your .env file!')
@@ -30,25 +28,97 @@ mongoose
   .then(() => console.log('✅ MongoDB connected successfully!'))
   .catch((err) => console.error('❌ MongoDB connection error:', err))
 
-// Routes
-const shipmentsRoutes = require('./routes/shipments')
-app.use('/api/shipments', shipmentsRoutes)
+// === Models ===
+const shipmentSchema = new mongoose.Schema({
+  recipient: { type: String, required: true },
+  address: { type: String, required: true },
+  weight: { type: Number, required: true },
+  service: { type: String, required: true },
+  labelPath: { type: String },
+  createdAt: { type: Date, default: Date.now },
+})
 
-// Serve labels
-app.use('/labels', express.static(__dirname + '/labels'))
+const Shipment = mongoose.model('Shipment', shipmentSchema)
+
+// === PDF Labels Folder ===
+const labelsDir = path.join(__dirname, 'labels')
+if (!fs.existsSync(labelsDir)) fs.mkdirSync(labelsDir)
+
+// Serve labels statically
+app.use('/labels', express.static(labelsDir))
+
+// === Routes ===
+
+// Root route
+app.get('/', (req, res) => {
+  res.send('Mini Shipping Manager Backend is running!')
+})
 
 // Test route
 app.get('/api/test', (req, res) => {
   res.json({ message: 'Server is working!' })
 })
 
-// Log incoming requests
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`)
-  next()
+// Get all shipments
+app.get('/api/shipments', async (req, res) => {
+  try {
+    const shipments = await Shipment.find().sort({ createdAt: -1 })
+    res.json(shipments)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Server error' })
+  }
 })
 
-// Start server
+// Create a shipment
+app.post('/api/shipments', async (req, res) => {
+  try {
+    const { recipient, address, weight, service } = req.body
+    if (!recipient || !address || !weight || !service) {
+      return res
+        .status(400)
+        .json({ error: 'recipient, address, weight, and service are required' })
+    }
+
+    const shipment = new Shipment({ recipient, address, weight, service })
+    await shipment.save()
+
+    // Generate PDF
+    const fileName = `label-${shipment._id}.pdf`
+    const filePath = path.join(labelsDir, fileName)
+
+    const doc = new PDFDocument()
+    const writeStream = fs.createWriteStream(filePath)
+    doc.pipe(writeStream)
+    doc.fontSize(20).text('Shipping Label', { align: 'center' })
+    doc.moveDown()
+    doc.fontSize(14).text(`Recipient: ${recipient}`)
+    doc.text(`Address: ${address}`)
+    doc.text(`Weight: ${weight} lb`)
+    doc.text(`Service: ${service}`)
+    doc.end()
+
+    writeStream.on('finish', async () => {
+      try {
+        shipment.labelPath = `${
+          process.env.BACKEND_URL || ''
+        }/labels/${fileName}`
+        await shipment.save()
+      } catch (err) {
+        console.error('Error updating labelPath:', err)
+      }
+    })
+
+    writeStream.on('error', (err) => console.error('PDF write error:', err))
+
+    res.json(shipment)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Server error' })
+  }
+})
+
+// === Start Server ===
 const PORT = process.env.PORT || 4000
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
