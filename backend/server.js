@@ -98,11 +98,14 @@ app.post('/api/shipments', async (req, res) => {
     doc.text(`Service: ${service}`)
     doc.end()
 
+    // After generating the PDF
     writeStream.on('finish', async () => {
       try {
-        shipment.labelPath = `${
-          process.env.BACKEND_URL || ''
-        }/labels/${fileName}`
+        // Make sure this points to your backend, NOT Netlify
+        const backendURL =
+          process.env.BACKEND_URL ||
+          'https://mini-shipping-manager-backend.onrender.com'
+        shipment.labelPath = `${backendURL}/labels/${fileName}`
         await shipment.save()
       } catch (err) {
         console.error('Error updating labelPath:', err)
