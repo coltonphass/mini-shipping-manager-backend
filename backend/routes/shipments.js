@@ -4,7 +4,6 @@ const mongoose = require('mongoose')
 const PDFDocument = require('pdfkit')
 const fs = require('fs')
 const path = require('path')
-const { PDFDocument: PDFLibDocument } = require('pdf-lib') // NEW: pdf-lib
 
 // MongoDB Shipment model
 const shipmentSchema = new mongoose.Schema({
@@ -16,9 +15,6 @@ const shipmentSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 })
 const Shipment = mongoose.model('Shipment', shipmentSchema)
-
-// Backend URL
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000'
 
 // GET last 5 shipments
 router.get('/', async (req, res) => {
@@ -81,7 +77,8 @@ function generatePDFInBackground(
 
     writeStream.on('finish', async () => {
       try {
-        shipment.labelPath = `${BACKEND_URL}/labels/${fileName}`
+        // Hardcoded to deployed backend
+        shipment.labelPath = `https://mini-shipping-manager-backend.onrender.com/labels/${fileName}`
         await shipment.save()
       } catch (err) {
         console.error('Error updating labelPath:', err)
@@ -94,14 +91,15 @@ function generatePDFInBackground(
   }
 }
 
-// Merge last 5 PDFs using Node.js
+// Merge last 5 PDFs (Node.js method)
+const { PDFDocument: PDFLibDocument } = require('pdf-lib')
 router.get('/merge-last-5', async (req, res) => {
   try {
     const labelsDir = path.join(__dirname, '../labels')
     const files = fs
       .readdirSync(labelsDir)
       .filter((f) => f.toLowerCase().endsWith('.pdf'))
-      .sort() // optional: adjust sorting if needed
+      .sort()
 
     const lastFive = files.slice(-5)
     if (lastFive.length === 0) {
@@ -132,3 +130,4 @@ router.get('/merge-last-5', async (req, res) => {
 })
 
 module.exports = router
+
